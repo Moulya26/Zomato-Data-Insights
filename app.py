@@ -179,18 +179,28 @@ def main():
     # Database Connection
     conn = sqlite3.connect(DATABASE_FILE)
 
-    menu = ["Customers", "Restaurants", "Orders", "Deliveries"]
-    choice = st.sidebar.selectbox("Select Table", menu)
+    st.sidebar.title("Navigation")
+    menu = st.sidebar.radio(
+        "Menu",
+        ["Home", "Manage Customers", "Manage Restaurants", "Manage Orders", "Manage Deliveries", "Column Management", "Query Section", "Table Management"]
+    )
 
-    if choice == "Customers":
+    if menu == "Manage Customers":
         manage_customers(conn)
-    elif choice == "Restaurants":
+    elif menu == "Manage Restaurants":
         manage_restaurants(conn)
-    elif choice == "Orders":
+    elif menu == "Manage Orders":
         manage_orders(conn)
-    elif choice == "Deliveries":
+    elif menu == "Manage Deliveries":
         manage_deliveries(conn)
-
+    elif menu == "Column Management":
+        manage_columns(conn)
+    elif menu == "Query Section":
+        query_section(conn)
+    elif menu == "Table Management":
+        manage_tables(conn)
+    else:
+        st.write("Welcome to the Food Delivery Management App!")
     conn.close()
 
 def manage_customers(conn):
@@ -391,6 +401,225 @@ def manage_deliveries(conn):
             cursor.execute("DELETE FROM Deliveries WHERE delivery_id = ?", (delivery_id_to_delete,))
             conn.commit()
             st.success("Delivery deleted successfully!")
+
+def manage_columns(conn):
+    """
+    Manage Columns in Customers, Restaurants, Orders, and Deliveries tables.
+    """
+    st.subheader("Column Management")
+    cursor = conn.cursor()
+
+    table_name = st.selectbox("Select Table", ["Customers", "Restaurants", "Orders", "Deliveries"])
+    operation = st.selectbox("Operation", ["Add Column", "Delete Column", "Update Column Name"])
+
+    if operation == "Add Column":
+        column_name = st.text_input("New Column Name")
+        column_type = st.selectbox("Column Type", ["TEXT", "INTEGER", "REAL", "BOOLEAN", "DATE"])
+        if st.button(f"Add Column to {table_name}"):
+            query = f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}"
+            try:
+                cursor.execute(query)
+                conn.commit()
+                st.success(f"Column {column_name} added to {table_name}!")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    elif operation == "Delete Column":
+        st.warning("Deleting a column is not natively supported in SQLite. It requires recreating the table.")
+        st.info("Please consult a database administrator for this operation.")
+        # Optional implementation: Table recreation logic
+
+    elif operation == "Update Column Name":
+        old_column_name = st.text_input("Old Column Name")
+        new_column_name = st.text_input("New Column Name")
+        if st.button(f"Update Column Name in {table_name}"):
+            st.warning("Renaming a column is not natively supported in SQLite. Consider using table recreation logic.")
+
+    st.info("SQLite has limited support for modifying table structures. Use carefully.")
+
+
+def query_section(conn):
+    """
+    Allows the user to select from a list of predefined SQL queries to analyze the data.
+    Displays the results in a readable format.
+    """
+    st.subheader("Query Section")
+
+    cursor = conn.cursor()
+
+    # List of predefined SQL queries with updated queries
+    queries = [
+        ("1. Get the total number of customers", "SELECT COUNT(*) FROM customers"),
+        ("2. Get the details of top 5 customers by total orders", "SELECT * FROM customers ORDER BY total_orders DESC LIMIT 5"),
+        ("3. Get the average order value for all customers", "SELECT AVG(total_amount) FROM orders"),
+        ("4. Get the total number of orders for each restaurant", "SELECT restaurant_id, COUNT(*) AS total_orders FROM orders GROUP BY restaurant_id"),
+        ("5. Get the total revenue for each restaurant", "SELECT restaurant_id, SUM(total_amount) AS total_revenue FROM orders GROUP BY restaurant_id"),
+        ("6. Get the number of orders placed each month in the last year", 
+         "SELECT strftime('%Y-%m', order_date) AS month, COUNT(*) AS total_orders FROM orders WHERE order_date >= DATE('now', '-1 year') GROUP BY month ORDER BY month DESC"),
+        ("7. Get the most popular restaurant by total orders", "SELECT restaurant_id, COUNT(*) AS total_orders FROM orders GROUP BY restaurant_id ORDER BY total_orders DESC LIMIT 1"),
+        ("8. Get the total number of canceled orders per restaurant", 
+         "SELECT restaurant_id, COUNT(*) AS canceled_orders FROM orders WHERE status = 'Cancelled' GROUP BY restaurant_id"),
+        ("9. Get the total revenue generated for each month", 
+         "SELECT strftime('%Y-%m', order_date) AS month, SUM(total_amount) AS total_revenue FROM orders GROUP BY month ORDER BY month DESC"),
+        ("10. Get the top 3 restaurants by rating", "SELECT restaurant_id, AVG(rating) AS avg_rating FROM restaurants GROUP BY restaurant_id ORDER BY avg_rating DESC LIMIT 3"),
+        ("11. Get the average discount applied for all orders", "SELECT AVG(discount_applied) FROM orders"),
+        ("12. Get the average order amount for premium customers", "SELECT AVG(total_amount) FROM orders WHERE customer_id IN (SELECT customer_id FROM customers WHERE is_premium = 1)"),
+        ("13. Get the total number of canceled orders", "SELECT COUNT(*) FROM orders WHERE status = 'Cancelled'"),
+        ("14. Get the average rating given to restaurants for each restaurant", 
+         "SELECT restaurant_id, AVG(rating) AS avg_rating FROM restaurants GROUP BY restaurant_id"),
+        ("15. Get the most common cuisine types ordered by customers", "SELECT preferred_cuisine, COUNT(*) AS frequency FROM customers GROUP BY preferred_cuisine ORDER BY frequency DESC LIMIT 5"),
+        ("16. Get the orders placed in the last 7 days", "SELECT * FROM orders WHERE order_date >= DATE('now', '-7 days')"),
+        ("17. Get the average delivery fee for orders", "SELECT AVG(delivery_fee) FROM deliveries"),
+        ("18. Get the number of active restaurants", "SELECT COUNT(*) FROM restaurants WHERE is_active = 1"),
+        ("19. Get the total number of orders placed per day", "SELECT DATE(order_date) AS order_day, COUNT(*) AS total_orders FROM orders GROUP BY order_day ORDER BY order_day DESC"),
+        ("20. Get the total revenue for the last 30 days", "SELECT SUM(total_amount) FROM orders WHERE order_date >= DATE('now', '-30 days')")
+    ]
+
+    # Let the user select a query
+    selected_query = st.selectbox("Choose a query to execute", [query[0] for query in queries])
+
+    # Find the query that matches the selected one
+    query_to_run = None
+    for query in queries:
+        if query[0] == selected_query:
+            query_to_run = query[1]
+            break
+
+    # Execute the selected query and display the result
+    if query_to_run:
+        try:
+            cursor.execute(query_to_run)
+            result = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]  # Get column names from cursor description
+            
+            # Convert result to DataFrame
+            df = pd.DataFrame(result, columns=columns)
+            
+            if not df.empty:
+                st.write("Query Results:")
+                st.dataframe(df)  # Display the DataFrame directly without passing 'columns'
+            else:
+                st.info("No results found for the selected query.")
+        except Exception as e:
+            st.error(f"Error executing query: {e}")
+
+
+
+def manage_tables(conn):
+    """
+    Manage Tables - Create, Read, Delete, Update Tables, Populate Tables with Data, and View Contents.
+    """
+    st.subheader("Table Management with Content Visibility")
+    cursor = conn.cursor()
+
+    # Select Operation
+    operation = st.selectbox(
+        "Select Operation",
+        ["Create Table", "View Tables", "View Table Content", "Delete Table", "Update Table Name", "Populate Table"]
+    )
+
+    if operation == "Create Table":
+        table_name = st.text_input("Enter New Table Name")
+        columns = st.text_area(
+            "Define Columns (e.g., column1 TYPE, column2 TYPE, ...)", 
+            placeholder="Example: id INTEGER PRIMARY KEY, name TEXT, age INTEGER"
+        )
+        if st.button("Create Table"):
+            if table_name and columns:
+                try:
+                    query = f"CREATE TABLE IF NOT EXISTS {table_name} ({columns})"
+                    cursor.execute(query)
+                    conn.commit()
+                    st.success(f"Table '{table_name}' created successfully!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            else:
+                st.warning("Please provide both table name and column definitions.")
+
+    elif operation == "Populate Table":
+        query = "SELECT name FROM sqlite_master WHERE type='table';"
+        cursor.execute(query)
+        tables = [table[0] for table in cursor.fetchall()]
+        selected_table = st.selectbox("Select Table to Populate", tables)
+        if selected_table:
+            st.write(f"Populating table '{selected_table}'")
+            cursor.execute(f"PRAGMA table_info({selected_table})")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+
+            # Input form for populating the table
+            input_data = {}
+            for col in column_names:
+                input_data[col] = st.text_input(f"Enter value for {col}")
+            
+            if st.button(f"Populate {selected_table}"):
+                try:
+                    # Prepare the data for insertion
+                    placeholders = ", ".join(["?" for _ in column_names])
+                    values = tuple(input_data[col] for col in column_names)
+                    query = f"INSERT INTO {selected_table} ({', '.join(column_names)}) VALUES ({placeholders})"
+                    cursor.execute(query, values)
+                    conn.commit()
+                    st.success(f"Data inserted into '{selected_table}' successfully!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    elif operation == "View Tables":
+        query = "SELECT name FROM sqlite_master WHERE type='table';"
+        cursor.execute(query)
+        tables = cursor.fetchall()
+        if tables:
+            st.write("Existing Tables:")
+            for table in tables:
+                st.write(f"- {table[0]}")
+        else:
+            st.info("No tables found.")
+
+    elif operation == "View Table Content":
+        query = "SELECT name FROM sqlite_master WHERE type='table';"
+        cursor.execute(query)
+        tables = [table[0] for table in cursor.fetchall()]
+        selected_table = st.selectbox("Select Table to View Content", tables)
+        if st.button("View Content"):
+            try:
+                cursor.execute(f"SELECT * FROM {selected_table}")
+                rows = cursor.fetchall()
+                if rows:
+                    st.write(f"Contents of {selected_table}:")
+                    st.dataframe(rows)
+                else:
+                    st.info(f"No data found in table '{selected_table}'.")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    elif operation == "Delete Table":
+        query = "SELECT name FROM sqlite_master WHERE type='table';"
+        cursor.execute(query)
+        tables = [table[0] for table in cursor.fetchall()]
+        table_to_delete = st.selectbox("Select Table to Delete", tables)
+        if st.button(f"Delete {table_to_delete}"):
+            try:
+                cursor.execute(f"DROP TABLE IF EXISTS {table_to_delete}")
+                conn.commit()
+                st.success(f"Table '{table_to_delete}' deleted successfully!")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+    elif operation == "Update Table Name":
+        query = "SELECT name FROM sqlite_master WHERE type='table';"
+        cursor.execute(query)
+        tables = [table[0] for table in cursor.fetchall()]
+        table_to_update = st.selectbox("Select Table to Rename", tables)
+        new_table_name = st.text_input("Enter New Table Name")
+        if st.button(f"Rename '{table_to_update}' to '{new_table_name}'"):
+            try:
+                cursor.execute(f"ALTER TABLE {table_to_update} RENAME TO {new_table_name}")
+                conn.commit()
+                st.success(f"Table renamed from '{table_to_update}' to '{new_table_name}'!")
+            except Exception as e:
+                st.error(f"Error: {e}")
+
+
 
 if __name__ == "__main__":
     main()
